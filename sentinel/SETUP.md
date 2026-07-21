@@ -17,7 +17,7 @@ it. Neither agent ever writes to a repo's files.
 
 ### 1a. Host the reusable workflow (once)
 
-In your central repo (`snowfranco/project-os`), commit the reusable workflow to
+In your central repo (`snowfranco/ProjectOS`), commit the reusable workflow to
 `.github/workflows/doc-drift-guard.yml`.
 
 The central repo must be **public**, or on a plan that allows sharing reusable
@@ -37,7 +37,7 @@ on:
 
 jobs:
   guard:
-    uses: snowfranco/project-os/.github/workflows/doc-drift-guard.yml@main
+    uses: snowfranco/ProjectOS/.github/workflows/doc-drift-guard.yml@main
     permissions:
       contents: read
       issues: write

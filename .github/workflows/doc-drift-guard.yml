@@ -1,0 +1,97 @@
+name: Doc drift guard (reusable)
+
+# Reusable workflow. Any repo calls it from its own .github/workflows/doc-drift.yml:
+#
+#   jobs:
+#     guard:
+#       uses: snowfranco/ProjectOS/.github/workflows/doc-drift-guard.yml@main
+#       permissions:
+#         contents: read
+#         issues: write
+#
+# Behavior: counts the commits that landed after the OS docs last moved, ignoring
+# doc-only commits (a "docs:" subject prefix). If that count reaches
+# commit_threshold, it opens (or updates) a single `doc-drift` labelled issue in
+# the calling repo. Once the docs catch up, the next run closes it. It never
+# writes to a repo's files; the repo stays authoritative.
+#
+# NOTE: reconstructed 2026-07-21 from the spec in sentinel/SETUP.md because the
+# original file was not present. Replace with the original if it resurfaces.
+
+on:
+  workflow_call:
+    inputs:
+      commit_threshold:
+        description: "Open the issue when this many non-docs commits land after the docs last moved"
+        type: number
+        default: 5
+      doc_paths:
+        description: "Space-separated doc files whose last change marks when the docs last moved"
+        type: string
+        default: "ROADMAP.md PROJECT_OS.md"
+
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Measure drift, open or close the doc-drift issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          THRESHOLD: ${{ inputs.commit_threshold }}
+          DOC_PATHS: ${{ inputs.doc_paths }}
+        run: |
+          set -euo pipefail
+
+          doc_sha="$(git log -1 --format=%H -- $DOC_PATHS || true)"
+          if [ -z "$doc_sha" ]; then
+            echo "No doc files ($DOC_PATHS) in history; nothing to compare."
+            exit 0
+          fi
+          doc_date="$(git show -s --format=%cI "$doc_sha")"
+
+          # Commits since the docs last moved, excluding doc-only commits (docs: prefix).
+          code_count="$(git log --since="$doc_date" --format=%s | grep -vc '^docs:' || true)"
+          code_count="${code_count:-0}"
+          echo "Docs last moved: $doc_date"
+          echo "Non-docs commits since: $code_count (threshold: $THRESHOLD)"
+
+          # Ensure the label exists (idempotent).
+          gh label create doc-drift --color BFD4F2 \
+            --description "OS docs are behind the code" --force >/dev/null 2>&1 || true
+
+          title="Docs may be stale: code has moved past the OS files"
+          existing="$(gh issue list --label doc-drift --state open --json number \
+            --jq '.[0].number // empty' || true)"
+
+          if [ "$code_count" -ge "$THRESHOLD" ]; then
+            body="$(printf '%s\n' \
+              "Automated doc-drift check." \
+              "" \
+              "\`$code_count\` non-docs commits have landed since the OS docs (\`$DOC_PATHS\`)" \
+              "last moved on \`$doc_date\`, at or above the threshold of \`$THRESHOLD\`." \
+              "" \
+              "Run session-close (or update ROADMAP.md / PROJECT_OS.md) so the docs" \
+              "reflect the code, then re-run this workflow to close the issue.")"
+            if [ -n "$existing" ]; then
+              echo "Updating existing issue #$existing"
+              gh issue comment "$existing" --body "$body"
+            else
+              echo "Opening a new doc-drift issue"
+              gh issue create --title "$title" --label doc-drift --body "$body"
+            fi
+          else
+            if [ -n "$existing" ]; then
+              echo "Docs are current; closing issue #$existing"
+              gh issue close "$existing" \
+                --comment "Docs have caught up with the code. Closing automatically."
+            else
+              echo "Docs are current; nothing to do."
+            fi
+          fi

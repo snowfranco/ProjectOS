@@ -1,0 +1,16 @@
+name: Doc drift
+
+# This repo's own caller for the reusable Doc Drift Guard.
+# The reusable workflow lives at .github/workflows/doc-drift-guard.yml in this
+# same repo; other repos call it the same way, pointing at this repo @main.
+on:
+  schedule:
+    - cron: "0 13 * * 1"   # Mondays 09:00 Toronto
+  workflow_dispatch:
+
+jobs:
+  guard:
+    uses: snowfranco/ProjectOS/.github/workflows/doc-drift-guard.yml@main
+    permissions:
+      contents: read
+      issues: write
