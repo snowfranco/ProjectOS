@@ -1,0 +1,35 @@
+name: Portfolio Sentinel
+
+on:
+  schedule:
+    - cron: "0 11 * * *"   # 07:00 Toronto (EDT). Use 12 for EST.
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Print instead of writing/sending"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  sentinel:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Run sentinel
+        env:
+          NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
+          NOTION_DB_ID: ${{ secrets.NOTION_DB_ID }}
+          GH_PAT: ${{ secrets.GH_PAT }}
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          STALL_DAYS: "14"
+          DRY_RUN: ${{ inputs.dry_run && '1' || '0' }}
+        run: python sentinel/sentinel.py
