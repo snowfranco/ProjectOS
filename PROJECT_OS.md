@@ -104,7 +104,17 @@ drift, or half-finished ideas.
 
 ## Decisions Log (newest first)
 
-### [2026-07-21] [AI] Reconstructed doc-drift-guard.yml from the SETUP.md spec (workaround)
+### [2026-07-21] [HU] Adopted the original doc-drift workflows; placed them in .github/workflows
+Context: The real doc-drift-guard.yml and doc-drift.yml surfaced (added on main at the
+repo root). The originals are richer than the reconstruction (a day_threshold input,
+$GITHUB_OUTPUT plumbing, one issue edited in place), and root-level workflow files do
+not run on GitHub Actions.
+Decision: Adopt both originals, relocate them into .github/workflows/, delete the root
+copies, and correct the caller's uses: path from snowfranco/pmaws to snowfranco/ProjectOS.
+Consequence: The real guard is now the one hosted centrally. The reconstruction below is
+superseded. Root files are gone so a merge back to main stays clean.
+
+### [2026-07-21] [AI] Reconstructed doc-drift-guard.yml from the SETUP.md spec (workaround) — SUPERSEDED by the entry above
 Context: The reusable Doc Drift Guard was marked "written" in the docs but was not in
 the initial upload, and the new .github/workflows/doc-drift.yml caller references it.
 Decision: Reconstruct a faithful reusable workflow from the behavior documented in

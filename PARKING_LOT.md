@@ -10,10 +10,6 @@ weeks having forgotten today.
   the initial upload, so `content/` is empty and untracked (git cannot track an empty
   dir). Drop the article file in and `git add` it. Until then the README link to it is
   a promissory note.
-- [2026-07-21] [AI] `doc-drift-guard.yml` was reconstructed from the sentinel/SETUP.md
-  spec because the original was not in the upload (docs mark it "written"). If the real
-  file resurfaces, replace the reconstruction and diff the behavior (issue title,
-  labels, threshold default).
 - [2026-07-16] [HU] Sienna and Workout App have `Stage = (tbd)` and the Workout App
   fields are undefined in the Portfolio (docs/PMAWS.md §5). Define them next time
   either project is touched.
@@ -27,6 +23,10 @@ weeks having forgotten today.
 
 ## Resolved (kept briefly for the audit trail)
 
+- [2026-07-21] [HU] The original `doc-drift-guard.yml` and `doc-drift.yml` (added on
+  `main`) were adopted, replacing the earlier reconstruction. Relocated from the repo
+  root into `.github/workflows/` (root workflow files do not run), and the caller's
+  `uses:` path was corrected from `snowfranco/pmaws` to `snowfranco/ProjectOS`.
 - [2026-07-21] [AI] `sentinel/SETUP.md` referenced the central repo as
   `snowfranco/project-os`; corrected to `snowfranco/ProjectOS` in §1a and §1b so the
   reusable-workflow `uses:` path is right.

@@ -1,11 +1,11 @@
 name: Doc drift
 
-# This repo's own caller for the reusable Doc Drift Guard.
-# The reusable workflow lives at .github/workflows/doc-drift-guard.yml in this
-# same repo; other repos call it the same way, pointing at this repo @main.
+# Copy this file into EVERY project repo at .github/workflows/doc-drift.yml
+# It calls the reusable guard hosted in the PMAWS repo.
+
 on:
   schedule:
-    - cron: "0 13 * * 1"   # Mondays 09:00 Toronto
+    - cron: "0 13 * * 1"   # Mondays 09:00 Toronto (EDT). Use 14 for EST.
   workflow_dispatch:
 
 jobs:
@@ -14,3 +14,9 @@ jobs:
     permissions:
       contents: read
       issues: write
+
+    # Optional per-repo overrides. Uncomment and tune for slower-cadence repos.
+    # with:
+    #   commit_threshold: 10
+    #   day_threshold: 21
+    #   doc_paths: "ROADMAP.md PROJECT_OS.md"

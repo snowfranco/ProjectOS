@@ -1,97 +1,130 @@
 name: Doc drift guard (reusable)
 
-# Reusable workflow. Any repo calls it from its own .github/workflows/doc-drift.yml:
-#
-#   jobs:
-#     guard:
-#       uses: snowfranco/ProjectOS/.github/workflows/doc-drift-guard.yml@main
-#       permissions:
-#         contents: read
-#         issues: write
-#
-# Behavior: counts the commits that landed after the OS docs last moved, ignoring
-# doc-only commits (a "docs:" subject prefix). If that count reaches
-# commit_threshold, it opens (or updates) a single `doc-drift` labelled issue in
-# the calling repo. Once the docs catch up, the next run closes it. It never
-# writes to a repo's files; the repo stays authoritative.
-#
-# NOTE: reconstructed 2026-07-21 from the spec in sentinel/SETUP.md because the
-# original file was not present. Replace with the original if it resurfaces.
+# Hosted centrally in the PMAWS repo. Other repos call it via `uses:`.
+# Detects when code has moved but the OS docs have not, and opens (or closes)
+# a single tracking issue in the calling repo.
 
 on:
   workflow_call:
     inputs:
-      commit_threshold:
-        description: "Open the issue when this many non-docs commits land after the docs last moved"
-        type: number
-        default: 5
       doc_paths:
-        description: "Space-separated doc files whose last change marks when the docs last moved"
+        description: "Space-separated docs that must track reality"
         type: string
         default: "ROADMAP.md PROJECT_OS.md"
+      commit_threshold:
+        description: "Code commits since last doc update before we complain"
+        type: number
+        default: 5
+      day_threshold:
+        description: "Days since last doc update before we complain"
+        type: number
+        default: 14
+
+permissions:
+  contents: read
+  issues: write
 
 jobs:
-  guard:
+  check:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      issues: write
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Measure drift, open or close the doc-drift issue
+      - name: Detect drift
+        id: drift
         env:
-          GH_TOKEN: ${{ github.token }}
-          THRESHOLD: ${{ inputs.commit_threshold }}
           DOC_PATHS: ${{ inputs.doc_paths }}
+          COMMIT_THRESHOLD: ${{ inputs.commit_threshold }}
+          DAY_THRESHOLD: ${{ inputs.day_threshold }}
         run: |
           set -euo pipefail
 
-          doc_sha="$(git log -1 --format=%H -- $DOC_PATHS || true)"
-          if [ -z "$doc_sha" ]; then
-            echo "No doc files ($DOC_PATHS) in history; nothing to compare."
+          existing=""
+          for f in $DOC_PATHS; do [ -f "$f" ] && existing="$existing $f"; done
+
+          # No OS files at all is itself drift: the repo has not been bootstrapped.
+          if [ -z "$existing" ]; then
+            {
+              echo "drift=true"
+              echo "reason=This repo has no ROADMAP.md or PROJECT_OS.md. Run the project-os skill to bootstrap it."
+              echo "commits=0"
+              echo "days=0"
+              echo "recent<<EOF"
+              echo "- (none)"
+              echo "EOF"
+            } >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          doc_date="$(git show -s --format=%cI "$doc_sha")"
 
-          # Commits since the docs last moved, excluding doc-only commits (docs: prefix).
-          code_count="$(git log --since="$doc_date" --format=%s | grep -vc '^docs:' || true)"
-          code_count="${code_count:-0}"
-          echo "Docs last moved: $doc_date"
-          echo "Non-docs commits since: $code_count (threshold: $THRESHOLD)"
+          last_doc=$(git log -1 --format=%cI -- $existing)
 
-          # Ensure the label exists (idempotent).
-          gh label create doc-drift --color BFD4F2 \
-            --description "OS docs are behind the code" --force >/dev/null 2>&1 || true
+          commits=$(git log --since="$last_doc" --format=%h \
+            -- . ':(exclude)*.md' ':(exclude)docs/**' ':(exclude).github/**' \
+            | wc -l | tr -d ' ')
 
-          title="Docs may be stale: code has moved past the OS files"
-          existing="$(gh issue list --label doc-drift --state open --json number \
-            --jq '.[0].number // empty' || true)"
+          days=$(( ( $(date +%s) - $(date -d "$last_doc" +%s) ) / 86400 ))
 
-          if [ "$code_count" -ge "$THRESHOLD" ]; then
-            body="$(printf '%s\n' \
-              "Automated doc-drift check." \
-              "" \
-              "\`$code_count\` non-docs commits have landed since the OS docs (\`$DOC_PATHS\`)" \
-              "last moved on \`$doc_date\`, at or above the threshold of \`$THRESHOLD\`." \
-              "" \
-              "Run session-close (or update ROADMAP.md / PROJECT_OS.md) so the docs" \
-              "reflect the code, then re-run this workflow to close the issue.")"
-            if [ -n "$existing" ]; then
-              echo "Updating existing issue #$existing"
-              gh issue comment "$existing" --body "$body"
-            else
-              echo "Opening a new doc-drift issue"
-              gh issue create --title "$title" --label doc-drift --body "$body"
-            fi
+          drift=false
+          reason=""
+          if [ "$commits" -ge "$COMMIT_THRESHOLD" ]; then
+            drift=true
+            reason="$commits code commits have landed since the docs last moved."
+          elif [ "$days" -ge "$DAY_THRESHOLD" ] && [ "$commits" -ge 1 ]; then
+            drift=true
+            reason="Docs untouched for $days days while $commits code commits landed."
+          fi
+
+          recent=$(git log --since="$last_doc" --format='- %h %s' \
+            -- . ':(exclude)*.md' | head -15)
+
+          {
+            echo "drift=$drift"
+            echo "reason=$reason"
+            echo "commits=$commits"
+            echo "days=$days"
+            echo "recent<<EOF"
+            echo "$recent"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Open or update the drift issue
+        if: steps.drift.outputs.drift == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REASON: ${{ steps.drift.outputs.reason }}
+          COMMITS: ${{ steps.drift.outputs.commits }}
+          DAYS: ${{ steps.drift.outputs.days }}
+          RECENT: ${{ steps.drift.outputs.recent }}
+        run: |
+          set -euo pipefail
+
+          gh label create doc-drift --color D93F0B \
+            --description "Docs no longer describe reality" 2>/dev/null || true
+
+          printf '%s\n\n**Since the docs last moved:** %s code commits, %s days.\n\nCommits the docs do not reflect:\n\n%s\n\n## To close\nRun `session-close` on this repo, or update the OS files by hand. This issue closes itself on the next run once the docs move.\n\n_Opened by doc-drift-guard._\n' \
+            "$REASON" "$COMMITS" "$DAYS" "$RECENT" > body.md
+
+          # One issue per repo, edited in place, so this never becomes a weekly spam.
+          num=$(gh issue list --label doc-drift --state open \
+            --json number --jq '.[0].number // empty')
+
+          if [ -n "$num" ]; then
+            gh issue edit "$num" --body-file body.md
           else
-            if [ -n "$existing" ]; then
-              echo "Docs are current; closing issue #$existing"
-              gh issue close "$existing" \
-                --comment "Docs have caught up with the code. Closing automatically."
-            else
-              echo "Docs are current; nothing to do."
-            fi
+            gh issue create \
+              --title "Doc drift: the roadmap no longer describes this repo" \
+              --label doc-drift --body-file body.md
+          fi
+
+      - name: Close it when the docs catch up
+        if: steps.drift.outputs.drift == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          num=$(gh issue list --label doc-drift --state open \
+            --json number --jq '.[0].number // empty')
+          if [ -n "$num" ]; then
+            gh issue close "$num" --comment "Docs are back in sync. Closing."
           fi
